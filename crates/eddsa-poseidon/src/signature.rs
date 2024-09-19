@@ -7,7 +7,7 @@ use ark_serialize::CanonicalSerialize;
 #[derive(Copy, Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Signature<TE: TECurveConfig + Clone> {
     r: Affine<TE>,
-    s: TE::ScalarField,
+    s: TE::BaseField,
 }
 
 impl<TE: TECurveConfig + Clone> Signature<TE> {
@@ -32,11 +32,11 @@ impl<TE: TECurveConfig + Clone> Signature<TE> {
         let off2 = off1 + 32;
 
         let r = Affine::<TE>::deserialize_uncompressed(&bytes[00..off1])?;
-        let s = TE::ScalarField::deserialize_uncompressed(&bytes[off1..off2])?;
+        let s = TE::BaseField::deserialize_uncompressed(&bytes[off1..off2])?;
         Ok(Signature { r, s })
     }
 
-    pub fn new(r: Affine<TE>, s: TE::ScalarField) -> Self {
+    pub fn new(r: Affine<TE>, s: TE::BaseField) -> Self {
         Self { r, s }
     }
 
@@ -44,7 +44,7 @@ impl<TE: TECurveConfig + Clone> Signature<TE> {
         &self.r
     }
 
-    pub fn s(&self) -> &TE::ScalarField {
+    pub fn s(&self) -> &TE::BaseField {
         &self.s
     }
 }

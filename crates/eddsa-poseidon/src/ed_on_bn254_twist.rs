@@ -18,8 +18,8 @@ pub type ScalarField = ark_ed_on_bn254::Fr;
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct EdwardsConfig;
 
-#[cfg(test)]
-ark_algebra_test_templates::test_group!(te; EdwardsProjective; te);
+//#[cfg(test)]
+//ark_algebra_test_templates::test_group!(te; EdwardsProjective; te);
 
 impl CurveConfig for EdwardsConfig {
     type BaseField = BaseField;

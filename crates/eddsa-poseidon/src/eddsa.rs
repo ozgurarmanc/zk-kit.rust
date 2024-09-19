@@ -1,13 +1,13 @@
 use crate::{signature::Signature, Error};
 use ark_crypto_primitives::sponge::{
     poseidon::{PoseidonConfig, PoseidonSponge},
-    Absorb, CryptographicSponge,
+    Absorb, CryptographicSponge, FieldBasedCryptographicSponge,
 };
 use ark_ec::{
     twisted_edwards::{Affine, TECurveConfig},
     AffineRepr,
 };
-use ark_ff::PrimeField;
+use ark_ff::{BigInteger, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use digest::Digest;
 use digest::OutputSizeUser;
@@ -18,6 +18,12 @@ fn prune_buffer<F: PrimeField>(mut bytes: [u8; 32]) -> F {
     bytes[31] &= 0b0111_1111;
     bytes[31] |= 0b0100_0000;
     F::from_le_bytes_mod_order(&bytes[..])
+}
+
+pub(crate) fn convert<F1: PrimeField, F2: PrimeField>(x: F1) -> F2 {
+    let bigint = x.into_bigint();
+    let bytes = bigint.to_bytes_le();
+    F2::from_le_bytes_mod_order(&bytes.as_slice())
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -124,17 +130,15 @@ where
     pub fn sign<D: Digest, E: Absorb>(
         &self,
         poseidon: &PoseidonConfig<TE::BaseField>,
-        message: &[E],
+        message: &TE::BaseField,
     ) -> Signature<TE> {
-        let (x, prefix) = self.secret_key.expand::<TE::ScalarField, D>();
+        let (x, prefix) = self.secret_key.expand::<TE::BaseField, D>();
 
         let mut h = D::new();
         h.update(prefix);
-        message
-            .iter()
-            .for_each(|m| h.update(m.to_sponge_bytes_as_vec()));
-        let r: TE::ScalarField = crate::from_digest(h);
-        let sig_r: Affine<TE> = (Affine::<TE>::generator() * r).into();
+        h.update(message.to_sponge_bytes_as_vec());
+        let r: TE::BaseField = crate::from_digest(h);
+        let sig_r: Affine<TE> = (Affine::<TE>::generator().mul_bigint(r.into_bigint())).into();
 
         let mut poseidon = PoseidonSponge::new(poseidon);
 
@@ -144,10 +148,10 @@ where
         let (pk_x, pk_y) = self.public_key.0.xy().unwrap();
         poseidon.absorb(pk_x);
         poseidon.absorb(pk_y);
-        message.iter().for_each(|m| poseidon.absorb(m));
+        poseidon.absorb(message);
 
-        let k = poseidon.squeeze_field_elements::<TE::ScalarField>(1);
-        let k = k.first().unwrap();
+        poseidon.squeeze_native_field_elements(1);
+        let k = poseidon.state[0];
 
         let sig_s = (x * k) + r;
 
@@ -172,7 +176,7 @@ where
     pub fn verify<E: Absorb>(
         &self,
         poseidon: &PoseidonConfig<TE::BaseField>,
-        message: &[E],
+        message: &TE::BaseField,
         signature: &Signature<TE>,
     ) -> Result<(), Error> {
         let mut poseidon = PoseidonSponge::new(poseidon);
@@ -183,13 +187,14 @@ where
         let (pk_x, pk_y) = self.0.xy().unwrap();
         poseidon.absorb(pk_x);
         poseidon.absorb(pk_y);
-        message.iter().for_each(|m| poseidon.absorb(m));
+        poseidon.absorb(message);
 
-        let k = poseidon.squeeze_field_elements::<TE::ScalarField>(1);
-        let k = k.first().unwrap();
+        poseidon.squeeze_native_field_elements(1);
+        let k = poseidon.state[0];
+        println!("verify hash is {:#?}", k.to_string());
 
-        let kx_b = self.0 * k;
-        let s_b = Affine::<TE>::generator() * signature.s();
+        let kx_b = self.0.mul_bigint(k.into_bigint());
+        let s_b = Affine::<TE>::generator().mul_bigint(signature.s().into_bigint());
         let r_rec: Affine<TE> = (s_b - kx_b).into();
 
         (signature.r() == &r_rec).then_some(()).ok_or(Error::Verify)
